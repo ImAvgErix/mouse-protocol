@@ -45,6 +45,7 @@ checklist.
 | Dareu | `@openmouse/protocol/dareu` |
 | Delux M800 Mini / M600 Pro | `@openmouse/protocol/delux` |
 | Endgame Gear OP1/XM2 8K | `@openmouse/protocol/endgame-gear-op1` |
+| Endgame Gear XM1r/OP1/OP1 RGB | `@openmouse/protocol/endgame-gear-ot` |
 | Endgame Gear wireless | `@openmouse/protocol/endgame-gear-we` |
 | Fantech | `@openmouse/protocol/fantech` |
 | Finalmouse | `@openmouse/protocol/finalmouse` |

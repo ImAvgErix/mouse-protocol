@@ -4,6 +4,7 @@ import { AtkHidClient } from "./atk/hid.ts";
 import { AttackSharkHidClient } from "./attackshark/hid.ts";
 import { DeluxHidClient } from "./delux/hid.ts";
 import { EggOp1HidClient } from "./endgame/egg-op1-hid.ts";
+import { EggOtHidClient } from "./endgame/egg-ot-hid.ts";
 import { FantechHidClient } from "./fantech/hid.ts";
 import { GearHubHidClient } from "./gearhub/hid.ts";
 import { eggWeCreate, eggWeIsSupported, eggWeSupportScore, isEggWeClient, type EggWeHidClient } from "./endgame/egg-we-control.ts";
@@ -81,7 +82,7 @@ import { AjazzHidClient } from "./ajazz/hid.ts";
 import { AjazzAk820HidClient } from "./ajazz/ak820-hid.ts";
 
 export type PulsarClient = PulsarHidClient | PulsarProHidClient | PulsarXs1HidClient;
-export type SupportedClient = RawmHidClient | MotospeedHidClient | LogitechHidppClient | PulsarClient | EggOp1HidClient | EggWeHidClient | FinalmouseHidClient | WLMouseHidClient | WLMouseBeastX4kHidClient | LamzuHidClient | LamzuAtlantisHidClient | OrbitalHidClient | RazerHidClient | RazerViperHidClient | RazerViperMiniHidClient | RazerViperV4ProHidClient | RazerCobraHidClient | TeevolutionHidClient | AtkHidClient | AtkBitmouseHidClient | VgnF2HidClient | VaxeeHidClient | Keychron8kHidClient | Keychron1kHidClient | Keychron4kHidClient | Keychron8kNordicHidClient | KeychronNapeHidClient | ModdoHidClient | NinjutsoHidClient | ZaunkoenigHidClient | CorsairHidClient | CorsairBragiHidClient | AttackSharkHidClient | FantechHidClient | GearHubHidClient | WootingHidClient | WallhackMouseHidClient | WallhackKeyboardHidClient | GWolvesHidClient | GWolvesXviHidClient | SteelSeriesRival3HidClient | SteelSeriesAerox3HidClient | SteelSeriesAerox3WirelessHidClient | SteelSeriesRival3WirelessHidClient | SteelSeriesAerox5HidClient | SteelSeriesAerox5WirelessHidClient | SteelSeriesRival650HidClient | SteelSeriesAerox9WirelessHidClient | SteelSeriesRival310HidClient | SteelSeriesPrimePlusHidClient | SteelSeriesPrimeMiniWirelessHidClient | SteelSeriesSenseiTenHidClient | GloriousHidClient | GloriousClassicHidClient | GloriousCore2HidClient | MchoseHidClient | MchoseDockHidClient | MchoseA5ProMaxHidClient | KsnakeHidClient | MicrosoftHidClient | DareuHidClient | RedragonHidClient | RedragonM690ProHidClient | IncottHidClient | HyperXHidClient | MchoseV3HidClient | AsusHidClient | KyuProMx1Client | DeluxHidClient | BytechHidClient | RapooHidClient | FaterHidClient | CoolerMasterHidClient | AjazzHidClient | AjazzAk820HidClient;
+export type SupportedClient = RawmHidClient | MotospeedHidClient | LogitechHidppClient | PulsarClient | EggOp1HidClient | EggOtHidClient | EggWeHidClient | FinalmouseHidClient | WLMouseHidClient | WLMouseBeastX4kHidClient | LamzuHidClient | LamzuAtlantisHidClient | OrbitalHidClient | RazerHidClient | RazerViperHidClient | RazerViperMiniHidClient | RazerViperV4ProHidClient | RazerCobraHidClient | TeevolutionHidClient | AtkHidClient | AtkBitmouseHidClient | VgnF2HidClient | VaxeeHidClient | Keychron8kHidClient | Keychron1kHidClient | Keychron4kHidClient | Keychron8kNordicHidClient | KeychronNapeHidClient | ModdoHidClient | NinjutsoHidClient | ZaunkoenigHidClient | CorsairHidClient | CorsairBragiHidClient | AttackSharkHidClient | FantechHidClient | GearHubHidClient | WootingHidClient | WallhackMouseHidClient | WallhackKeyboardHidClient | GWolvesHidClient | GWolvesXviHidClient | SteelSeriesRival3HidClient | SteelSeriesAerox3HidClient | SteelSeriesAerox3WirelessHidClient | SteelSeriesRival3WirelessHidClient | SteelSeriesAerox5HidClient | SteelSeriesAerox5WirelessHidClient | SteelSeriesRival650HidClient | SteelSeriesAerox9WirelessHidClient | SteelSeriesRival310HidClient | SteelSeriesPrimePlusHidClient | SteelSeriesPrimeMiniWirelessHidClient | SteelSeriesSenseiTenHidClient | GloriousHidClient | GloriousClassicHidClient | GloriousCore2HidClient | MchoseHidClient | MchoseDockHidClient | MchoseA5ProMaxHidClient | KsnakeHidClient | MicrosoftHidClient | DareuHidClient | RedragonHidClient | RedragonM690ProHidClient | IncottHidClient | HyperXHidClient | MchoseV3HidClient | AsusHidClient | KyuProMx1Client | DeluxHidClient | BytechHidClient | RapooHidClient | FaterHidClient | CoolerMasterHidClient | AjazzHidClient | AjazzAk820HidClient;
 
 export interface DeviceDriver {
   brand: string;
@@ -110,6 +111,9 @@ export const DEVICE_DRIVERS: readonly DeviceDriver[] = [
   // Scored above EggWeHidClient.supportScore's ~50 ceiling: a 4K v2 dongle
   // (PID 0x1970) exposes WE-shaped sibling interfaces next to this one.
   { brand: "Endgame Gear", supports: (device) => EggOp1HidClient.isSupported(device), create: (device) => new EggOp1HidClient(device), score: () => 100 },
+  // OT PIDs (0x1903/0x1905/0x1906) are disjoint from every K26/WE catalog by
+  // product id, so this never contends with the drivers above.
+  { brand: "Endgame Gear", supports: (device) => EggOtHidClient.isSupported(device), create: (device) => new EggOtHidClient(device), score: () => 100 },
   { brand: "Endgame Gear", supports: eggWeIsSupported, create: eggWeCreate, score: eggWeSupportScore },
   { brand: "Pulsar", supports: (device) => PulsarXs1HidClient.isSupported(device), create: (device) => new PulsarXs1HidClient(device), score: () => 8 },
   { brand: "Pulsar", supports: (device) => PulsarProHidClient.isSupported(device), create: (device) => new PulsarProHidClient(device), score: () => 8 },
@@ -211,7 +215,7 @@ export function clientSupportScore(device: HIDDevice): number {
 }
 
 export function deviceBrand(client: SupportedClient): string {
-  if (client instanceof EggOp1HidClient || isEggWeClient(client)) return "Endgame Gear";
+  if (client instanceof EggOp1HidClient || client instanceof EggOtHidClient || isEggWeClient(client)) return "Endgame Gear";
   if (client instanceof LamzuHidClient) return client.deviceBrand();
   if (client instanceof AtkHidClient) return client.deviceBrand();
   if (client instanceof DeluxHidClient) return client.deviceBrand();

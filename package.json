@@ -42,6 +42,10 @@
       "types": "./dist/endgame-gear/op1.d.ts",
       "import": "./dist/endgame-gear/op1.js"
     },
+    "./endgame-gear-ot": {
+      "types": "./dist/endgame-gear/ot.d.ts",
+      "import": "./dist/endgame-gear/ot.js"
+    },
     "./finalmouse": {
       "types": "./dist/finalmouse/index.d.ts",
       "import": "./dist/finalmouse/index.js"

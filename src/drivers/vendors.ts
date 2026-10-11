@@ -619,6 +619,8 @@ export const LOGITECH_BOOTLOADER_PRODUCT_IDS = [
 ] as const;
 
 export const LOGITECH_RECEIVER_PRODUCT_IDS = [
+  // Ids confirmed on hardware or from a user diagnostic, with their device
+  // context in the comment above.
   0xc54d,
   0xc543,
   0xc539,
@@ -628,6 +630,17 @@ export const LOGITECH_RECEIVER_PRODUCT_IDS = [
   0xc54f,
   0xc52b,
   0xc532,
+  // The remaining Lightspeed and Nano receivers Solaar documents
+  // (docs/devices.md, "Supported Receivers"). Listing one only changes the
+  // device-index probe order — the picker filter already matches any Logitech
+  // receiver by vendor and usage — so a mouse behind one of these is probed on
+  // its pairing slots first instead of the receiver's own 0xFF endpoint.
+  // 0xc542 is deliberately absent: Solaar notes that receiver does not
+  // implement the HID++ protocol at all. 0xc517 is the 27 MHz generation that
+  // predates HID++.
+  0xc53a, 0xc53d, 0xc53f, 0xc541, 0xc545, // Lightspeed
+  0xc518, 0xc51a, 0xc51b, 0xc521, 0xc525, 0xc526,
+  0xc52e, 0xc52f, 0xc531, 0xc534, 0xc537, // Nano
   ...LOGITECH_BOLT_PRODUCT_IDS,
 ] as const;
 

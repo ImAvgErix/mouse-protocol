@@ -52,6 +52,7 @@ checklist.
 | GearHub (AJAZZ / Attack Shark / Lingbao) | `@openmouse/protocol/gearhub` |
 | Glorious | `@openmouse/protocol/glorious` |
 | Glorious classic (Model O/D/I) | `@openmouse/protocol/glorious-classic` |
+| Glorious core2 (O2/D2 Pro 4K/8K) | `@openmouse/protocol/glorious-core2` |
 | HyperX | `@openmouse/protocol/hyperx` |
 | Incott | `@openmouse/protocol/incott` |
 | K-snake | `@openmouse/protocol/ksnake` |

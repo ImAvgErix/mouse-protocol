@@ -89,7 +89,11 @@ test("claims the cable and receiver ids on the 0xffff config collection only", (
   // Interface 1 carries a 0xffff collection (usage 1) with no feature report.
   assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(WIRED, { collections: [fakeCollection(0xffff, 1, false)] }).device), false);
   assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(WIRED, { collections: [fakeCollection(0xff01, 0, true)] }).device), false);
-  assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(0x2036).device), false);
+  // The D 2 PRO 4K/8K pair shares this driver (same protocol generation).
+  assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(0x201c).device), true);
+  assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(0x2036).device), true);
+  // ...while an unknown PID on the same VID stays unclaimed.
+  assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(0x2000).device), false);
   assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(WIRED, { vendorId: 0x3794 }).device), false);
 });
 

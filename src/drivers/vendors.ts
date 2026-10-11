@@ -293,12 +293,20 @@ export const STEELSERIES_RIVAL3_FILTERS: HIDDeviceFilter[] = [...STEELSERIES_PRO
 
 // Pixart-based Model O 2 / I 2 family (OpenRGB issue #4649, linux-hardware.org).
 export const GLORIOUS_PRODUCTS: ReadonlyMap<number, { name: string; wireless: boolean }> = new Map([
-  [0x821d, { name: "Model I 2 Wireless", wireless: false }],
+  [0x821d, { name: "Model I 2 Wireless receiver", wireless: true }],
+  [0x821b, { name: "Model I 2 Bluetooth", wireless: true }],
   [0x822a, { name: "Model O 2 Wireless", wireless: false }],
   [0x822b, { name: "Model O 2 Bluetooth", wireless: true }],
   [0x822d, { name: "Model O 2 Wireless receiver", wireless: true }],
+  [0x824a, { name: "Model D 2 Wireless", wireless: false }],
+  [0x824b, { name: "Model D 2 Bluetooth", wireless: true }],
+  [0x824d, { name: "Model D 2 Wireless receiver", wireless: true }],
+  [0x825a, { name: "Model D 2 Wired", wireless: false }],
   [0x826a, { name: "Model O 2 Mini Wireless", wireless: false }],
+  [0x826b, { name: "Model O 2 Mini Bluetooth", wireless: true }],
   [0x826d, { name: "Model O 2 Mini Wireless receiver", wireless: true }],
+  [0x827a, { name: "Model O 2 Mini Wired", wireless: false }],
+  [0x832a, { name: "Model D- 2 Wired", wireless: false }],
 ]);
 
 /**
@@ -314,9 +322,9 @@ export const GLORIOUS_PRODUCTS: ReadonlyMap<number, { name: string; wireless: bo
  * `generation` gates which commands the driver will actually send:
  * - "core1": the original protocol korkje/mxw reverse-engineered. Full
  *   support — RGB, debounce, battery (glorious-ctl), DPI/polling/LOD (mxw).
- * - "core2": a newer, mostly-undocumented protocol generation (the 4K/8K-class
- *   mice: Model O3 Wireless, Model D2 Pro 4K/8K; the Model O2 Pro 4K/8K has
- *   its own driver, see GLORIOUS_CORE2_PRODUCTS). Only
+ * - "core2": a newer, mostly-undocumented protocol generation (Model O3
+ *   Wireless; the 4K/8K-class mice have their own driver, see
+ *   GLORIOUS_CORE2_PRODUCTS). Only
  *   RGB, debounce, and battery are enabled for these — glorious-ctl's own
  *   `devices.json` lists Model O3/D2Pro-4K8K alongside the core1 devices and
  *   applies the exact same `mouse.py` commands uniformly, and
@@ -354,7 +362,20 @@ export const GLORIOUS_CLASSIC_PRODUCTS: ReadonlyMap<number, { name: string; wire
   [0x2024, { name: "Model O- Wireless receiver", wireless: true, generation: "core1" }],
   [0x2014, { name: "Model D- Wireless", wireless: false, generation: "core1" }],
   [0x2025, { name: "Model D- Wireless", wireless: true, generation: "core1" }],
-  [0x2033, { name: "Model O 2 Wireless", wireless: true, generation: "core1" }],
+  [0x2019, { name: "Model O 2 PRO", wireless: false, generation: "core1" }],
+  // 0x2033 was previously labeled "Model O 2 Wireless" from community tables;
+  // Glorious CORE's own SupportDevice.DB (v2.1.3) pairs it as the Model O 2 PRO
+  // 2.4 GHz receiver (wired PID 0x2019 above), same ModelOSeries router family.
+  [0x2033, { name: "Model O 2 PRO Wireless receiver", wireless: true, generation: "core1" }],
+  // Series 2 PRO: CORE drives it with the same ModelOSeries router as the
+  // core1 classics above, so DPI/RGB/debounce/battery/LOD use the classic
+  // commands. Its 2K/4K/8K polling rates do NOT fit the classic polling
+  // payload ({125,250,500,1000} Hz only) — CORE sends them via the newer
+  // per-profile wired/wireless polling command instead, which this driver
+  // does not speak yet. Polling stays capped at 1000 Hz until a capture of
+  // that command exists.
+  [0x201d, { name: "Series 2 PRO", wireless: false, generation: "core1" }],
+  [0x2039, { name: "Series 2 PRO Wireless receiver", wireless: true, generation: "core1" }],
   // "core1" here is unconfirmed, despite the name overlap with 0x2033 above -
   // a real unit is on a completely different VID (gloriousClassicIWired,
   // 0x320f, not gloriousClassic's 0x258a) and its feature report declares
@@ -375,14 +396,14 @@ export const GLORIOUS_CLASSIC_PRODUCTS: ReadonlyMap<number, { name: string; wire
   [0x821a, { name: "Model I 2 Wireless", wireless: false, generation: "core1" }], // unconfirmed - see the note on 0x823a above
   [0x831a, { name: "Model I 2 Wired", wireless: false, generation: "core1" }], // unconfirmed - see the note on 0x823a above
   // core2 — RGB/debounce/battery only, see the doc comment above.
+  // (Model D 2 PRO 4K/8KHz Edition used to live here; it has graduated to the
+  // full GloriousCore2HidClient driver — see GLORIOUS_CORE2_PRODUCTS.)
   [0xa312, { name: "Model O3 Wireless", wireless: true, generation: "core2" }],
   [0xa300, { name: "Model O3 Wireless receiver", wireless: true, generation: "core2" }],
-  [0x201c, { name: "Model D 2 PRO 4K/8KHz Edition", wireless: false, generation: "core2" }],
-  [0x2036, { name: "Model D 2 PRO 4K/8KHz Edition receiver", wireless: true, generation: "core2" }],
 ]);
 
 /**
- * Model O2 Pro 4K/8K. The config collection is usage page 0xffff, usage 0.
+ * Model O2/D2 Pro 4K/8K. The config collection is usage page 0xffff, usage 0.
  * Interface 1 has another 0xffff collection (usage 1, no feature report), so
  * the picker may list two entries; the driver claims only the one that takes
  * the feature report. The usage is left out so a firmware that reports another

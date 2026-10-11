@@ -58,6 +58,23 @@ export interface GloriousCore2Product {
 export const GLORIOUS_CORE2_PRODUCTS: ReadonlyMap<number, GloriousCore2Product> = new Map([
   [0x201b, { name: "Model O2 Pro 4K/8K", wireless: false }],
   [0x2035, { name: "Model O2 Pro 4K/8K Wireless receiver", wireless: true }],
+  // Same protocol generation as the O2 Pro 4K/8K (CORE routes both through
+  // one ModelOSeries handler with identical DPI/polling ranges: 100-26000 dpi,
+  // 8K wired / 4K wireless). Confirmed in CORE's own code, not just its table:
+  // at all 7 SN-branched sites in ModelOSeries.ts (polling V2, calibration V2,
+  // motion sync, debounce, pairing) 0x201B and 0x201C share one branch and are
+  // never distinguished — only Series 2 PRO (0x201D) gets its own flag, for
+  // 8K-wireless. SupportDevice.DB records are equal except pid, the pairing
+  // table lists 0x2035/0x2036 symmetrically, and the button layouts are 99.5%
+  // identical (shell coordinates only). A hardware run is still welcome, but
+  // there is no known code path where the D2 behaves differently.
+  // PID note: stale CORE UI tables (input layouts, update tasks, FakeDevice)
+  // still map 0x2036 to a "Model O Minus Wired" that has no SupportDevice.DB
+  // record — the live detection and pairing paths both resolve 0x2036 to this
+  // receiver. An actual O- Wired unit would confuse CORE itself, so this
+  // follows the functional paths.
+  [0x201c, { name: "Model D2 Pro 4K/8K", wireless: false }],
+  [0x2036, { name: "Model D2 Pro 4K/8K Wireless receiver", wireless: true }],
 ]);
 
 /** Profiles are numbered from 1 on the wire, the position of the profile in CORE's list. */

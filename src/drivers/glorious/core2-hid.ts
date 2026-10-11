@@ -34,7 +34,9 @@ import {
 
 /**
  * Driver for the Glorious Model O 2 PRO 4K/8K, wired (0x258a:0x201b) and
- * through its 2.4 GHz receiver (0x2035). Frames follow Glorious CORE's own
+ * through its 2.4 GHz receiver (0x2035), and the Model D 2 PRO 4K/8K
+ * (0x258a:0x201c / 0x2036) — CORE drives both through one handler with
+ * identical ranges. Frames follow Glorious CORE's own
  * traffic and code, see ../../glorious-core2/index.ts and
  * captures/glorious-o2-pro-4k8k-wired/.
  *

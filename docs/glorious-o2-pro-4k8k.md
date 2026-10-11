@@ -106,5 +106,9 @@ Not done, with the reason:
 - What the mouse does with 8000 Hz in the wireless byte. CORE wrote it once and
   corrected itself.
 - Whether the same frames work unchanged on the Model D2 Pro 4K/8K
-  (`258a:201c`, `258a:2036`). CORE gives it the same handler, but no capture of
-  it exists here, so it stays on the reduced classic driver.
+  (`258a:201c`, `258a:2036`). Answered in CORE's own code: at all 7
+  SN-branched sites in `ModelOSeries.ts` (polling V2, calibration V2, motion
+  sync, debounce, pairing) `0x201B` and `0x201C` share one branch and are
+  never distinguished, so the frames are byte-identical for equal settings —
+  which is why the core2 driver claims both. A hardware run is still welcome,
+  but no capture is needed to justify it.

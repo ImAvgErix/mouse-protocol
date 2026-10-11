@@ -359,9 +359,15 @@ export class GloriousCore2HidClient {
     };
   }
 
-  /** One key per model, not per product id: the cable and the receiver reach the same mouse and the same profiles. */
+  /**
+   * One key per model, not per product id: the cable and the receiver reach
+   * the same mouse and the same profiles — but O2 Pro and D2 Pro must NOT
+   * share: a DPI edit on one would otherwise load the other's stage table
+   * and write it to the connected mouse.
+   */
   private storageKey(suffix: string): string {
-    return `openmouse-glorious-core2-v1:o2-pro-4k8k:${suffix}`;
+    const family = this.device.productId === 0x201c || this.device.productId === 0x2036 ? "d2-pro-4k8k" : "o2-pro-4k8k";
+    return `openmouse-glorious-core2-v1:${family}:${suffix}`;
   }
 
   private loadProfile(): number {

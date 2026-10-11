@@ -97,6 +97,20 @@ test("claims the cable and receiver ids on the 0xffff config collection only", (
   assert.equal(GloriousCore2HidClient.isSupported(fakeDevice(WIRED, { vendorId: 0x3794 }).device), false);
 });
 
+test("O2 Pro and D2 Pro keep separate persisted settings", withLocalStorage(async () => {
+  const o2 = new GloriousCore2HidClient(fakeDevice(WIRED).device);
+  assert.equal(await o2.setDpiStageValue(1, 900), 900);
+  // The D2 starts from factory defaults, not the O2's stored edit ...
+  const d2 = new GloriousCore2HidClient(fakeDevice(0x201c).device);
+  assert.deepEqual((await d2.readStatus()).dpiStages, [400, 800, 1600, 3200]);
+  // ... and a D2 edit does not leak back into the O2's stored stages.
+  assert.equal(await d2.setDpiStageValue(1, 950), 950);
+  assert.deepEqual((await o2.readStatus()).dpiStages, [400, 900, 1600, 3200]);
+  // Same for the D2 receiver: it shares the D2 key, not the O2 one.
+  const d2rx = new GloriousCore2HidClient(fakeDevice(0x2036).device);
+  assert.deepEqual((await d2rx.readStatus()).dpiStages, [400, 950, 1600, 3200]);
+}));
+
 test("reads firmware and battery with the frames CORE used, and reports the captured answers", async () => {
   const { firmware, battery } = capturedReplies();
   const { device, sent } = fakeDevice(WIRED, { replies: [firmware, battery] });

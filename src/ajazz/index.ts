@@ -325,12 +325,31 @@ export function ajazzDecodeKeys(reply: Uint8Array): AjazzKeyBinding[] | null {
 }
 
 /**
- * Plausibility gate for decoded key maps. A crossed report from another
- * command decodes to zeroed/garbage slot types; real maps always carry
- * nonzero, non-0xff types (32/33/48 catalog, 16 keyboard combos, 112 macros).
+ * Plausibility gate for decoded key maps. The vendor panel treats a slot read
+ * back as type 0 or 0xff as a default-binding marker (it keeps its own
+ * default for that button), so markers are accepted per slot. Anything else
+ * outside the 16/32/33/48/112 catalog is rejected as a crossed or
+ * half-filled report.
  */
 export function ajazzKeysLookPlausible(keys: readonly AjazzKeyBinding[]): boolean {
-  return keys.length === AJAZZ_KEY_SLOTS && keys.every((key) => key.type !== 0 && key.type !== 0xff);
+  return (
+    keys.length === AJAZZ_KEY_SLOTS &&
+    keys.every((key) => key.type === 0 || key.type === 0xff || ajazzIsKnownKeyType(key.type))
+  );
+}
+
+/**
+ * Substitute the factory defaults for default-binding markers (type 0/0xff),
+ * mirroring the vendor panel's merge of a freshly read map over its own
+ * defaults. Real bindings pass through untouched.
+ */
+export function ajazzApplyKeyDefaults(keys: readonly AjazzKeyBinding[]): AjazzKeyBinding[] {
+  return keys.map((key, index) => {
+    if ((key.type === 0 || key.type === 0xff) && index < AJAZZ_DEFAULT_KEYS.length) {
+      return { ...AJAZZ_DEFAULT_KEYS[index] };
+    }
+    return { ...key };
+  });
 }
 
 /**

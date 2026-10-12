@@ -24,6 +24,7 @@ import {
   ajazzEncodeSetConfig,
   ajazzEncodeSetKeys,
   ajazzFindButtonAction,
+  ajazzApplyKeyDefaults,
   ajazzGetBatteryRequest,
   ajazzGetConfigRequest,
   ajazzGetKeysRequest,
@@ -38,6 +39,10 @@ import {
 const REPLY_TIMEOUT_MS = 800;
 /** Pause after a SET before reading back, so the mouse can commit to flash. */
 const SETTLE_AFTER_WRITE_MS = 250;
+/** Outer bound for post-write read-back polling; slow commits get this long. */
+const CONFIRM_TIMEOUT_MS = 2500;
+/** Pause between read-back polls. */
+const POLL_INTERVAL_MS = 250;
 
 /** Rejected when a command gets no matching input report within the timeout. */
 export class AjazzTimeoutError extends Error {
@@ -271,19 +276,27 @@ export class AjazzHidClient {
     }
   }
 
-  /** Poll the config until `kept` passes or ~2 s elapse. */
+  /** Poll the config until `kept` passes, the deadline elapses, or reads go
+   * silent three times running (a dead mouse answers nothing, so further
+   * attempts only burn reply timeouts). Slow flash commits still get the
+   * full window; silent mice fail fast. */
   private async readBackConfigMatching(kept: (confirmed: AjazzConfig) => boolean): Promise<AjazzConfig | null> {
+    const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
+    let silent = 0;
     await sleep(this.settleAfterWriteMs);
-    for (let attempt = 0; attempt < 7; attempt++) {
+    for (;;) {
       const reply = await this.exchange(ajazzGetConfigRequest()).catch(() => null);
       const config = reply ? ajazzDecodeConfig(reply) : null;
       if (config && configLooksValid(config)) {
         this.lastGoodConfig = config;
         if (kept(config)) return config;
+        silent = 0;
+      } else if (++silent >= 3) {
+        return null;
       }
-      await sleep(250);
+      if (Date.now() >= deadline) return null;
+      await sleep(POLL_INTERVAL_MS);
     }
-    return null;
   }
 
   async setDpiStageValue(stage: number, dpi: number): Promise<number> {
@@ -374,14 +387,28 @@ export class AjazzHidClient {
     return direction;
   }
 
-  /** Read the six-button map; null when the mouse answers nothing plausible. */
+  /**
+   * Read the six-button map; null when the mouse answers nothing plausible.
+   * Default-binding markers (type 0/0xff) come back as the factory defaults,
+   * mirroring the vendor panel's merge.
+   */
   async getKeys(): Promise<AjazzKeyBinding[] | null> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const reply = await this.exchange(ajazzGetKeysRequest()).catch(() => null);
       const keys = reply ? ajazzDecodeKeys(reply) : null;
-      if (keys && ajazzKeysLookPlausible(keys)) return keys;
+      if (keys && ajazzKeysLookPlausible(keys)) return ajazzApplyKeyDefaults(keys);
     }
     return null;
+  }
+
+  /**
+   * Read the map once without retries, for deadline-bounded write
+   * confirmation (retries there would multiply timeouts past the deadline).
+   */
+  private async getKeysOnce(): Promise<AjazzKeyBinding[] | null> {
+    const reply = await this.exchange(ajazzGetKeysRequest()).catch(() => null);
+    const keys = reply ? ajazzDecodeKeys(reply) : null;
+    return keys && ajazzKeysLookPlausible(keys) ? ajazzApplyKeyDefaults(keys) : null;
   }
 
   /**
@@ -403,10 +430,22 @@ export class AjazzHidClient {
     }
     await this.sendOnly(ajazzEncodeSetKeys(slots));
     await sleep(this.settleAfterWriteMs);
-    for (let attempt = 0; attempt < 7; attempt++) {
-      const confirmed = await this.getKeys();
-      if (confirmed && slots.every((key, index) => equalBinding(confirmed[index], key))) return slots;
-      await sleep(250);
+    // Read-back arrives default-substituted like getKeys(), so compare
+    // against the same normalization (a marker written as-is reads back
+    // as its factory binding).
+    const wanted = ajazzApplyKeyDefaults(slots);
+    const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
+    let silent = 0;
+    for (;;) {
+      const confirmed = await this.getKeysOnce();
+      if (confirmed) {
+        if (wanted.every((key, index) => equalBinding(confirmed[index], key))) return slots;
+        silent = 0;
+      } else if (++silent >= 3) {
+        break;
+      }
+      if (Date.now() >= deadline) break;
+      await sleep(POLL_INTERVAL_MS);
     }
     const last = await this.getKeys();
     throw new Error(`The mouse did not keep the new button map (read back ${last ? JSON.stringify(last) : "no readable reply"}).`);

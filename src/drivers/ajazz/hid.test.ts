@@ -17,6 +17,7 @@ import {
   ajazzDecodeKeys,
   ajazzDecodePollingRate,
   ajazzDecodeVersion,
+  ajazzApplyKeyDefaults,
   ajazzEncodePollingRate,
   ajazzEncodeSetConfig,
   ajazzEncodeSetKeys,
@@ -161,9 +162,18 @@ describe("ajazz codec", () => {
     assert.equal(ajazzKeysLookPlausible(ajazzDecodeKeys(wireReply)!), true);
     assert.equal(ajazzDecodeKeys(reply(0x09)), null);
     assert.equal(ajazzDecodeKeys(new Uint8Array(20)), null);
+    // Default-binding markers (type 0/0xff) are plausible per slot and fall
+    // back to the factory bindings, like the vendor panel's merge.
+    const marked = ajazzDecodeKeys(wireReply)!.map((key, i) => (i % 2 ? { ...key, type: 0xff } : key));
+    assert.equal(ajazzKeysLookPlausible(marked), true);
+    assert.deepEqual(ajazzApplyKeyDefaults(marked), [...AJAZZ_DEFAULT_KEYS]);
     const blank = new Uint8Array(63);
     blank[0] = 0x08;
-    assert.equal(ajazzKeysLookPlausible(ajazzDecodeKeys(blank)!), false);
+    assert.equal(ajazzKeysLookPlausible(ajazzDecodeKeys(blank)!), true);
+    assert.deepEqual(ajazzApplyKeyDefaults(ajazzDecodeKeys(blank)!), [...AJAZZ_DEFAULT_KEYS]);
+    // Anything outside the 0/0xff/known-type set is still rejected.
+    const garbage = ajazzDecodeKeys(wireReply)!.map((key) => ({ ...key, type: 7 }));
+    assert.equal(ajazzKeysLookPlausible(garbage), false);
   });
 
   it("names catalog bindings and keeps macros readable", () => {

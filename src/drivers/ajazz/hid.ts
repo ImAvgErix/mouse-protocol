@@ -1,5 +1,8 @@
 import type { MouseStatus } from "../mouse-types.ts";
 import {
+  AJAZZ_BUTTON_ACTIONS,
+  AJAZZ_BUTTON_NAMES,
+  AJAZZ_DEFAULT_KEYS,
   AJAZZ_DONGLE_VENDOR_ID,
   AJAZZ_OFFERED_POLLING_RATES,
   AJAZZ_PRODUCTS,
@@ -11,18 +14,25 @@ import {
   AJAZZ_DPI_MIN,
   AJAZZ_DPI_STEP,
   AJAZZ_DPI_STAGES,
+  ajazzBindingLabel,
   ajazzDecodeBattery,
   ajazzDecodeConfig,
+  ajazzDecodeKeys,
   ajazzDecodePollingRate,
   ajazzDecodeVersion,
   ajazzEncodePollingRate,
   ajazzEncodeSetConfig,
+  ajazzEncodeSetKeys,
+  ajazzFindButtonAction,
   ajazzGetBatteryRequest,
   ajazzGetConfigRequest,
+  ajazzGetKeysRequest,
   ajazzGetVersionRequest,
   ajazzIsValidDpi,
   ajazzIsValidSleepSeconds,
+  ajazzKeysLookPlausible,
   type AjazzConfig,
+  type AjazzKeyBinding,
 } from "../../ajazz/index.ts";
 
 const REPLY_TIMEOUT_MS = 800;
@@ -58,9 +68,11 @@ function copyDataView(view: DataView): Uint8Array {
  * status reports unprompted, so replies are matched by command rather than by
  * arrival order. A tiny queue serializes calls like the vendor panel does.
  *
- * Evidence: the vendor panel's JavaScript only. Nothing here has been run
- * against hardware, so every write reads the config back and fails loudly
- * when the mouse kept something else.
+ * Evidence: the vendor panel's JavaScript, plus ticket-0156 hardware replies
+ * for config, battery and version (NJ07 MC, firmware 2.0.1) and a passing
+ * flash write round-trip. The key-map path follows the same panel JS and
+ * awaits a hardware confirmation, so every write still reads back and fails
+ * loudly when the mouse kept something else.
  */
 export class AjazzHidClient {
   readonly device: HIDDevice;
@@ -141,18 +153,19 @@ export class AjazzHidClient {
     return started;
   }
 
-  /** Retry on timeout only; a sleeping dongle often drops the first command. */
-  private async exchangeRetrying(request: Uint8Array, attempts: number): Promise<Uint8Array> {
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < attempts; attempt++) {
-      try {
-        return await this.exchange(request);
-      } catch (error) {
-        if (!(error instanceof AjazzTimeoutError)) throw error;
-        lastError = error;
-      }
-    }
-    throw lastError;
+  /**
+   * Fire-and-forget write, mirroring the vendor panel: `setMouseConfigData()`
+   * and `setMouseKeys()` never wait for an echo, they just queue the report.
+   * The read-back below is the check, so a mouse that answers SET slowly (or
+   * never) no longer stalls every setter for two full reply timeouts.
+   */
+  private sendOnly(request: Uint8Array): Promise<void> {
+    const started = this.queue.then(async () => {
+      await this.open();
+      await this.device.sendReport(AJAZZ_REPORT_ID, request.slice());
+    });
+    this.queue = started.catch(() => undefined);
+    return started;
   }
 
   private async readConfig(attempts = 3): Promise<AjazzConfig | null> {
@@ -172,6 +185,9 @@ export class AjazzHidClient {
     const config = (await this.readConfig(2)) ?? this.lastGoodConfig;
     const battery = await this.exchange(ajazzGetBatteryRequest()).then(ajazzDecodeBattery, () => null);
     const version = await this.exchange(ajazzGetVersionRequest()).then(ajazzDecodeVersion, () => null);
+    // Sequential on purpose: keys are the least critical read, and a failed
+    // one must not blank the config the UI already shows.
+    const keys = await this.getKeys().catch(() => null);
     const stages = config?.stages.slice(0, config.dpiCount) ?? [];
     const activeStage = config ? Math.min(config.dpiIndex, stages.length - 1) : 0;
     return {
@@ -181,7 +197,9 @@ export class AjazzHidClient {
         family: "ajazz",
         settingsReady: config !== null,
         valuesVerified: config !== null,
-        showAdvancedSection: true,
+        // The readable key map belongs in the shared Buttons tab. Keep the
+        // tab hidden when the dongle returns no plausible map.
+        showAdvancedSection: keys !== null,
         hideUnsupportedPollingRates: true,
         hideProcessingCard: true,
         hideSignalCard: true,
@@ -208,14 +226,34 @@ export class AjazzHidClient {
       sleepTimeout: config && config.sleepMinutes > 0 ? config.sleepMinutes * 60 : null,
       scrollDirection: config ? (config.scrollFlag === 1 ? "Reverse" : "Forward") : null,
       firmware: version ? [`${model} ${version}`] : [model],
+      // Generic remap interface: the shared ButtonMappingCard renders these
+      // with no brand-specific code. Opaque bindings (keyboard combos with
+      // modifiers, macros) surface as "Custom (…)" and are preserved during a
+      // different slot's write.
+      buttonMappings: keys
+        ? Object.fromEntries(
+            AJAZZ_BUTTON_NAMES.map((name, index) => {
+              const binding = keys[index];
+              return [
+                name,
+                binding
+                  ? ajazzBindingLabel(binding)
+                    ?? `Custom (${binding.type},${binding.code1},${binding.code2},${binding.code3})`
+                  : "Unknown",
+              ] as const;
+            }),
+          )
+        : undefined,
+      buttonOptions: AJAZZ_BUTTON_ACTIONS.map((action) => action.label),
     };
   }
 
   /**
    * SET_CONFIG rewrites the whole block, so every setter reads the current
-   * block, patches one field, writes it and reads it back. The panel tolerates
-   * a silent SET (it only waits 500 ms for an echo), so a missing echo is not
-   * an error here either; the read-back is the check.
+   * block, patches one field, writes it and reads it back. The write itself
+   * is fire-and-forget like the vendor panel; the read-back is the check.
+   * Slow flash commits are retried for ~2 s before failing, so a mouse that
+   * applies the write late no longer reports a false "kept the old value".
    */
   private async updateConfig(
     patch: Partial<AjazzConfig>,
@@ -225,14 +263,27 @@ export class AjazzHidClient {
   ): Promise<void> {
     const current = await this.readConfig();
     if (!current) throw new Error("Could not read the current config from the mouse.");
-    await this.exchangeRetrying(ajazzEncodeSetConfig({ ...current, ...patch }), 2).catch((error: unknown) => {
-      if (!(error instanceof AjazzTimeoutError)) throw error;
-    });
-    await sleep(this.settleAfterWriteMs);
-    const confirmed = await this.readConfig();
-    if (!confirmed || !kept(confirmed)) {
-      throw new Error(`The mouse kept ${confirmed ? describe(confirmed) : "an unreadable config"} instead of ${wanted}.`);
+    await this.sendOnly(ajazzEncodeSetConfig({ ...current, ...patch }));
+    const confirmed = await this.readBackConfigMatching(kept);
+    if (!confirmed) {
+      const last = await this.readConfig(1);
+      throw new Error(`The mouse kept ${last ? describe(last) : "an unreadable config"} instead of ${wanted}.`);
     }
+  }
+
+  /** Poll the config until `kept` passes or ~2 s elapse. */
+  private async readBackConfigMatching(kept: (confirmed: AjazzConfig) => boolean): Promise<AjazzConfig | null> {
+    await sleep(this.settleAfterWriteMs);
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const reply = await this.exchange(ajazzGetConfigRequest()).catch(() => null);
+      const config = reply ? ajazzDecodeConfig(reply) : null;
+      if (config && configLooksValid(config)) {
+        this.lastGoodConfig = config;
+        if (kept(config)) return config;
+      }
+      await sleep(250);
+    }
+    return null;
   }
 
   async setDpiStageValue(stage: number, dpi: number): Promise<number> {
@@ -322,6 +373,69 @@ export class AjazzHidClient {
     );
     return direction;
   }
+
+  /** Read the six-button map; null when the mouse answers nothing plausible. */
+  async getKeys(): Promise<AjazzKeyBinding[] | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const reply = await this.exchange(ajazzGetKeysRequest()).catch(() => null);
+      const keys = reply ? ajazzDecodeKeys(reply) : null;
+      if (keys && ajazzKeysLookPlausible(keys)) return keys;
+    }
+    return null;
+  }
+
+  /**
+   * Write all six key slots (SET_KEYS). The two fixed wheel entries are
+   * always appended by the codec; opaque macro/combo slots are preserved
+   * rather than guessed or rebuilt. Confirms by reading the map back, with
+   * the same slow-flash tolerance as config writes.
+   */
+  async setKeys(keys: readonly AjazzKeyBinding[]): Promise<AjazzKeyBinding[]> {
+    const slots = [...keys].slice(0, AJAZZ_DEFAULT_KEYS.length);
+    if (slots.length !== AJAZZ_DEFAULT_KEYS.length) {
+      throw new Error(`Exactly ${AJAZZ_DEFAULT_KEYS.length} key bindings are required (got ${keys.length}).`);
+    }
+    for (const [index, key] of slots.entries()) {
+      const bytes = [key.type, key.code1, key.code2, key.code3];
+      if (!bytes.every((b) => Number.isInteger(b) && b >= 0 && b <= 255)) {
+        throw new Error(`Button ${index + 1}: binding bytes must be 0-255.`);
+      }
+    }
+    await this.sendOnly(ajazzEncodeSetKeys(slots));
+    await sleep(this.settleAfterWriteMs);
+    for (let attempt = 0; attempt < 7; attempt++) {
+      const confirmed = await this.getKeys();
+      if (confirmed && slots.every((key, index) => equalBinding(confirmed[index], key))) return slots;
+      await sleep(250);
+    }
+    const last = await this.getKeys();
+    throw new Error(`The mouse did not keep the new button map (read back ${last ? JSON.stringify(last) : "no readable reply"}).`);
+  }
+
+  /**
+   * Remap one button by display label (generic `setButtonMapping` interface).
+   * SET_KEYS always carries all six key slots, so the current map is
+   * re-read and the single slot replaced — confirmed by setKeys' read-back.
+   * Slot "Left" is locked: unbinding the primary button with no other
+   * recovery path would brick basic use.
+   */
+  async setButtonMapping(button: string, actionLabel: string): Promise<void> {
+    const index = (AJAZZ_BUTTON_NAMES as readonly string[]).indexOf(button);
+    if (index < 0) throw new Error(`This mouse has no "${button}" button.`);
+    if (index === 0) throw new Error("Left Click is fixed and cannot be reassigned.");
+    const binding = ajazzFindButtonAction(actionLabel);
+    if (!binding) throw new Error(`Unknown button action "${actionLabel}".`);
+    const current = await this.getKeys();
+    if (!current) throw new Error("Could not read the current button map from the mouse.");
+    const slots = current.map((slot) => ({ ...slot }));
+    slots[index] = binding;
+    await this.setKeys(slots);
+  }
+
+  /** Restore the six factory bindings from every model's default profile. */
+  async resetButtonMap(): Promise<void> {
+    await this.setKeys(AJAZZ_DEFAULT_KEYS.map((key) => ({ ...key })));
+  }
 }
 
 /** Rejects a decode that cannot be a real block, such as a crossed or half-filled report. */
@@ -332,4 +446,8 @@ function configLooksValid(config: AjazzConfig): boolean {
     config.dpiCount <= AJAZZ_DPI_STAGES &&
     config.dpiIndex < config.dpiCount
   );
+}
+
+function equalBinding(a: AjazzKeyBinding, b: AjazzKeyBinding): boolean {
+  return a.type === b.type && a.code1 === b.code1 && a.code2 === b.code2 && a.code3 === b.code3;
 }

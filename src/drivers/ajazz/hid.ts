@@ -43,6 +43,8 @@ const SETTLE_AFTER_WRITE_MS = 250;
 const CONFIRM_TIMEOUT_MS = 2500;
 /** Pause between read-back polls. */
 const POLL_INTERVAL_MS = 250;
+/** SET attempts before a write is reported as ignored (a lost frame is common). */
+const WRITE_ATTEMPTS = 2;
 
 /** Rejected when a command gets no matching input report within the timeout. */
 export class AjazzTimeoutError extends Error {
@@ -55,6 +57,8 @@ export class AjazzTimeoutError extends Error {
 export interface AjazzClientOptions {
   replyTimeoutMs?: number;
   settleAfterWriteMs?: number;
+  /** Outer bound for post-write read-back polling. */
+  confirmTimeoutMs?: number;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -84,6 +88,7 @@ export class AjazzHidClient {
   private queue: Promise<unknown> = Promise.resolve();
   private readonly replyTimeoutMs: number;
   private readonly settleAfterWriteMs: number;
+  private readonly confirmTimeoutMs: number;
   /** Last config that decoded cleanly, so a failed poll does not blank the UI. */
   private lastGoodConfig: AjazzConfig | null = null;
 
@@ -91,6 +96,7 @@ export class AjazzHidClient {
     this.device = device;
     this.replyTimeoutMs = options.replyTimeoutMs ?? REPLY_TIMEOUT_MS;
     this.settleAfterWriteMs = options.settleAfterWriteMs ?? SETTLE_AFTER_WRITE_MS;
+    this.confirmTimeoutMs = options.confirmTimeoutMs ?? CONFIRM_TIMEOUT_MS;
   }
 
   static isSupported(device: HIDDevice): boolean {
@@ -257,8 +263,13 @@ export class AjazzHidClient {
    * SET_CONFIG rewrites the whole block, so every setter reads the current
    * block, patches one field, writes it and reads it back. The write itself
    * is fire-and-forget like the vendor panel; the read-back is the check.
-   * Slow flash commits are retried for ~2 s before failing, so a mouse that
-   * applies the write late no longer reports a false "kept the old value".
+   *
+   * A 2.4G link drops frames (the vendor panel's own comment notes the dongle
+   * often ignores the first command), so a mismatch is retried once with a
+   * fresh read of the block. That covers a lost SET, which otherwise looks
+   * exactly like "the mouse ignored this setting" while another field changed
+   * in an earlier frame that did land. A genuinely rejected value fails after
+   * the second window instead of reporting success.
    */
   private async updateConfig(
     patch: Partial<AjazzConfig>,
@@ -266,14 +277,18 @@ export class AjazzHidClient {
     describe: (confirmed: AjazzConfig) => string,
     wanted: string,
   ): Promise<void> {
-    const current = await this.readConfig();
-    if (!current) throw new Error("Could not read the current config from the mouse.");
-    await this.sendOnly(ajazzEncodeSetConfig({ ...current, ...patch }));
-    const confirmed = await this.readBackConfigMatching(kept);
-    if (!confirmed) {
-      const last = await this.readConfig(1);
-      throw new Error(`The mouse kept ${last ? describe(last) : "an unreadable config"} instead of ${wanted}.`);
+    let latest: AjazzConfig | null = null;
+    for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+      const current = await this.readConfig();
+      if (!current) throw new Error("Could not read the current config from the mouse.");
+      latest = current;
+      await this.sendOnly(ajazzEncodeSetConfig({ ...current, ...patch }));
+      const confirmed = await this.readBackConfigMatching(kept);
+      if (confirmed) return;
     }
+    const last = await this.readConfig(1);
+    const seen = last ?? latest;
+    throw new Error(`The mouse kept ${seen ? describe(seen) : "an unreadable config"} instead of ${wanted}.`);
   }
 
   /** Poll the config until `kept` passes, the deadline elapses, or reads go
@@ -281,7 +296,7 @@ export class AjazzHidClient {
    * attempts only burn reply timeouts). Slow flash commits still get the
    * full window; silent mice fail fast. */
   private async readBackConfigMatching(kept: (confirmed: AjazzConfig) => boolean): Promise<AjazzConfig | null> {
-    const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
+    const deadline = Date.now() + this.confirmTimeoutMs;
     let silent = 0;
     await sleep(this.settleAfterWriteMs);
     for (;;) {
@@ -428,27 +443,35 @@ export class AjazzHidClient {
         throw new Error(`Button ${index + 1}: binding bytes must be 0-255.`);
       }
     }
-    await this.sendOnly(ajazzEncodeSetKeys(slots));
-    await sleep(this.settleAfterWriteMs);
     // Read-back arrives default-substituted like getKeys(), so compare
     // against the same normalization (a marker written as-is reads back
     // as its factory binding).
     const wanted = ajazzApplyKeyDefaults(slots);
-    const deadline = Date.now() + CONFIRM_TIMEOUT_MS;
-    let silent = 0;
-    for (;;) {
-      const confirmed = await this.getKeysOnce();
-      if (confirmed) {
-        if (wanted.every((key, index) => equalBinding(confirmed[index], key))) return slots;
-        silent = 0;
-      } else if (++silent >= 3) {
-        break;
-      }
-      if (Date.now() >= deadline) break;
-      await sleep(POLL_INTERVAL_MS);
+    for (let attempt = 0; attempt < WRITE_ATTEMPTS; attempt++) {
+      await this.sendOnly(ajazzEncodeSetKeys(slots));
+      if (await this.keysMatch(wanted)) return slots;
     }
     const last = await this.getKeys();
     throw new Error(`The mouse did not keep the new button map (read back ${last ? JSON.stringify(last) : "no readable reply"}).`);
+  }
+
+  /** Poll the key map until it matches `wanted`, the deadline elapses, or
+   * reads go silent three times running. */
+  private async keysMatch(wanted: readonly AjazzKeyBinding[]): Promise<boolean> {
+    const deadline = Date.now() + this.confirmTimeoutMs;
+    let silent = 0;
+    await sleep(this.settleAfterWriteMs);
+    for (;;) {
+      const confirmed = await this.getKeysOnce();
+      if (confirmed) {
+        if (wanted.every((key, index) => equalBinding(confirmed[index], key))) return true;
+        silent = 0;
+      } else if (++silent >= 3) {
+        return false;
+      }
+      if (Date.now() >= deadline) return false;
+      await sleep(POLL_INTERVAL_MS);
+    }
   }
 
   /**

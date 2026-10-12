@@ -201,6 +201,8 @@ interface MouseOptions {
   silent?: boolean;
   /** Acknowledge SET_CONFIG but keep the old block. */
   ignoreWrites?: boolean;
+  /** Drop the first N SET_CONFIG/SET_KEYS frames, like a busy 2.4G link. */
+  dropWrites?: number;
   /** Push a status report before every answer, like the mouse does on DPI changes. */
   noisy?: boolean;
 }
@@ -211,6 +213,14 @@ function fakeMouse(options: MouseOptions = {}) {
   const keyBlock = new Uint8Array(32);
   keyBlock.set([32, 1, 0, 0, 32, 2, 0, 0, 32, 4, 0, 0, 32, 8, 0, 0, 32, 16, 0, 0, 33, 85, 0, 0, 33, 56, 1, 0, 33, 56, 255, 0]);
   const sent: Uint8Array[] = [];
+  let dropped = 0;
+  const shouldDrop = (): boolean => {
+    if (options.dropWrites && dropped < options.dropWrites) {
+      dropped++;
+      return true;
+    }
+    return false;
+  };
   const listeners = new Set<(event: HIDInputReportEvent) => void>();
   const emit = (data: Uint8Array): void => {
     const event = { reportId: AJAZZ_REPORT_ID, data: new DataView(data.buffer.slice(0)) };
@@ -241,7 +251,7 @@ function fakeMouse(options: MouseOptions = {}) {
           break;
         }
         case 0x0f:
-          if (!options.ignoreWrites) block.set(request.slice(8, 54), 8);
+          if (!options.ignoreWrites && !shouldDrop()) block.set(request.slice(8, 54), 8);
           emit(reply(0x0f));
           break;
         case 0x08: {
@@ -252,7 +262,7 @@ function fakeMouse(options: MouseOptions = {}) {
           break;
         }
         case 0x09:
-          if (!options.ignoreWrites) keyBlock.set(request.slice(7, 39), 0);
+          if (!options.ignoreWrites && !shouldDrop()) keyBlock.set(request.slice(7, 39), 0);
           emit(reply(0x09));
           break;
         case 0x30:
@@ -264,7 +274,11 @@ function fakeMouse(options: MouseOptions = {}) {
       }
     },
   };
-  const client = new AjazzHidClient(device as unknown as HIDDevice, { replyTimeoutMs: 20, settleAfterWriteMs: 0 });
+  const client = new AjazzHidClient(device as unknown as HIDDevice, {
+    replyTimeoutMs: 20,
+    settleAfterWriteMs: 0,
+    confirmTimeoutMs: 300,
+  });
   return { device: device as unknown as HIDDevice, client, block, keyBlock, sent };
 }
 
@@ -382,6 +396,16 @@ describe("AjazzHidClient", () => {
   it("fails loudly when the mouse acknowledges a write but keeps the old value", async () => {
     const { client } = fakeMouse({ ignoreWrites: true });
     await assert.rejects(client.setPollingRate(125), /kept 1000 Hz instead of 125 Hz/);
+  });
+
+  it("retries once so a dropped 2.4G frame still lands", async () => {
+    const config = fakeMouse({ dropWrites: 1 });
+    assert.equal(await config.client.setPollingRate(125), 125);
+    assert.deepEqual((await config.client.readStatus()).dpiStages, [400, 800, 1200, 1600, 2400, 3200]);
+
+    const keys = fakeMouse({ dropWrites: 1 });
+    await keys.client.setButtonMapping("Forward", "W");
+    assert.equal((await keys.client.readStatus()).buttonMappings?.["Forward"], "W");
   });
 
   it("does not write when the current config cannot be read", async () => {

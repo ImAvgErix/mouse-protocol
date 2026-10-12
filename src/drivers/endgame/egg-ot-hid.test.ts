@@ -64,7 +64,7 @@ const FIRST = OT_EFFECT_SIZE - 68;
  * records firmware packets. Block surgery mirrors the vendor tool, written
  * out independently of otEncodeProfilePacket.
  */
-function fakeOtMouse({ productId = 0x1905 } = {}) {
+function fakeOtMouse({ productId = 0x1905, silentSaves = false } = {}) {
   const effect = otEncodeEffect(sampleEffect());
   const sent: string[] = [];
   let queue: Uint8Array[] = [];
@@ -140,8 +140,11 @@ function fakeOtMouse({ productId = 0x1905 } = {}) {
       if (comtype === OT_COMTYPE.queryProfileData) {
         queue.push(response(OT_COMTYPE.queryProfileData, blockSlice(block)));
       } else if (comtype === OT_COMTYPE.setProfileData) {
-        if (block === OT_PROFILE_BLOCK.main) {
+        if (silentSaves) {
+          queue = [];
+        } else if (block === OT_PROFILE_BLOCK.main) {
           effect.set(full.subarray(OT_PAYLOAD_INDEX, OT_PAYLOAD_INDEX + FIRST), 0);
+          queue.push(response(comtype, new Uint8Array(61)));
         } else {
           const starts: Record<number, number> = {
             [OT_PROFILE_BLOCK.keyboard]: FIRST,
@@ -162,8 +165,8 @@ function fakeOtMouse({ productId = 0x1905 } = {}) {
             full.subarray(OT_PAYLOAD_INDEX + 4, OT_PAYLOAD_INDEX + 4 + lengths[block]!),
             starts[block]!,
           );
+          queue.push(response(comtype, new Uint8Array(61)));
         }
-        queue.push(response(comtype, new Uint8Array(61)));
       } else if (comtype === OT_COMTYPE.queryFirmwareVersion) {
         queue.push(response(OT_COMTYPE.queryFirmwareVersion, new Uint8Array([0x37, 0x01, 0, 0])));
       } else if (comtype === OT_COMTYPE.firmwareDlSetup) {
@@ -232,6 +235,7 @@ test("status reads decode the six-block profile", async () => {
   assert.deepEqual(status.supportedPollingRates, [125, 250, 500, 1000]);
   assert.equal(status.profileCount, 5);
   assert.deepEqual(status.profileNames, ["Gaming"]);
+  assert.deepEqual(status.otCpiStages.map((stage) => stage.active), [false, true, false, false]);
   assert.equal(status.liftOffDistance, "Medium");
   assert.equal(status.otLodLabel, "1 mm");
   assert.equal(status.otRgbMode, 1);
@@ -276,4 +280,10 @@ test("flash sends setup, indexed packets, and progress, reset stays separate", a
   assert.equal(fake.firmware().resets, 1);
   const raw = await client.queryFirmwareRaw();
   assert.deepEqual(raw?.slice(0, 2), [0x37, 0x01]);
+});
+
+test("unacknowledged writes reject instead of silently succeeding", async () => {
+  const fake = fakeOtMouse({ silentSaves: true });
+  const client = new EggOtHidClient(fake.device);
+  await assert.rejects(() => client.setDpi(1600), /did not acknowledge/);
 });

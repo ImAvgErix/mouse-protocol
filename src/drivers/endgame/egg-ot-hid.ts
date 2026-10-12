@@ -177,7 +177,9 @@ export class EggOtHidClient {
       otCpiStages: effect.cpi.map((x, i) => ({
         x,
         y: effect.cpiY[i] ?? x,
-        active: (x % 50) !== 0,
+        // Selected stage. The vendor tool instead marks stages whose value
+        // is not 50-aligned; that readback quirk is not mirrored here.
+        active: i === effect.cpiIndex,
       })),
       otCpiMin: 50,
       otCpiMax: this.profile.maxCpi,
@@ -403,7 +405,7 @@ export class EggOtHidClient {
     });
   }
 
-  private async sendPacket(packet: Uint8Array): Promise<boolean> {
+  private async sendPacket(packet: Uint8Array): Promise<void> {
     await this.open();
     let writeCounter = 0;
     let readCounter = 0;
@@ -428,15 +430,15 @@ export class EggOtHidClient {
                 receivedAck = true;
                 continue;
               }
-              if (receivedAck) return true;
+              if (receivedAck) return;
             } else if (reply[1] === OT_COMTYPE.ack || reply[1] === OT_COMTYPE.response) {
-              return true;
+              return;
             }
           }
         }
       }
     }
-    return false;
+    throw new Error("The Endgame Gear OT mouse did not acknowledge the packet.");
   }
 
   private async exchange(packet: Uint8Array, expectResponse: boolean): Promise<Uint8Array | null> {

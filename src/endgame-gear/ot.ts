@@ -181,6 +181,56 @@ export const OT_POLL_RATE_HZ: ReadonlyMap<number, number> = new Map([
   [3, 125],
 ]);
 
+/**
+ * Settings OpenMouse exposes on an OT-platform mouse. Read-only entries
+ * (sensitivity, acceleration, jitter correction, LED stages, button mapping)
+ * are decoded into status but have no writer yet; macros, profile
+ * activation, keyboard bindings, and LED-effect writes are vendor-only.
+ */
+export type OtExposedFeature =
+  | "profiles"
+  | "dpi-stages"
+  | "polling-rate"
+  | "lift-off-distance"
+  | "angle-snapping"
+  | "ripple-control"
+  | "slamclick-filter"
+  | "motion-sync"
+  | "sensitivity"
+  | "acceleration"
+  | "jitter-correction"
+  | "led-stages"
+  | "button-mapping"
+  | "rgb-effect"
+  | "battery-telemetry"
+  | "firmware-query"
+  | "firmware-flash"
+  | "firmware-reset";
+
+export function otExposedFeatures(profile: OtDeviceProfile): OtExposedFeature[] {
+  const features: OtExposedFeature[] = [
+    "profiles",
+    "dpi-stages",
+    "polling-rate",
+    "lift-off-distance",
+    "angle-snapping",
+    "ripple-control",
+    "slamclick-filter",
+    "motion-sync",
+    "sensitivity",
+    "acceleration",
+    "jitter-correction",
+    "led-stages",
+    "button-mapping",
+    "battery-telemetry",
+    "firmware-query",
+    "firmware-flash",
+    "firmware-reset",
+  ];
+  if (profile.hasRgbEffect) features.push("rgb-effect");
+  return features;
+}
+
 export const OT_POLLING_RATES = [125, 250, 500, 1000] as const;
 
 /** Profile-flags bits, from MakeProfileFromEffect in the vendor app. */

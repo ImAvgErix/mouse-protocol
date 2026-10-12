@@ -31,6 +31,7 @@ import {
   otParseWirelessTelemetry,
   otPollRateHz,
   otProfileBlocks,
+  otExposedFeatures,
   otProfileForPid,
   otReassembleEffect,
   type OtEffect,
@@ -279,4 +280,17 @@ test("feature replies normalize with or without the report id", () => {
   const normalized = otNormalizeFeatureReport(withoutId);
   assert.equal(normalized.length, 64);
   assert.equal(normalized[1], OT_COMTYPE.ack);
+});
+
+test("each OT device lists its exposed features", () => {
+  const base = [
+    "profiles", "dpi-stages", "polling-rate", "lift-off-distance",
+    "angle-snapping", "ripple-control", "slamclick-filter", "motion-sync",
+    "sensitivity", "acceleration", "jitter-correction", "led-stages",
+    "button-mapping", "battery-telemetry", "firmware-query",
+    "firmware-flash", "firmware-reset",
+  ];
+  assert.deepEqual(otExposedFeatures(OT_DEVICE_PROFILES.get(0x1903)!), base);
+  assert.deepEqual(otExposedFeatures(OT_DEVICE_PROFILES.get(0x1906)!), base);
+  assert.deepEqual(otExposedFeatures(OT_DEVICE_PROFILES.get(0x1905)!), [...base, "rgb-effect"]);
 });

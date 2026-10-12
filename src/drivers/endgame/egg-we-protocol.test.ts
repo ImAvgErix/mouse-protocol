@@ -9,6 +9,7 @@ import {
   WE_REPORT_ID,
   weBuildReadEepromPayload,
   weBuildWriteEepromPayload,
+  weExposedFeatures,
   wePackDpiStage,
   wePackScalarPair,
   weParseReadEepromResponse,
@@ -149,4 +150,8 @@ test("DPI changes only the active stage and preserves flags", () => {
 test("DPI patch refuses corrupt source stages", () => {
   const profile = new Uint8Array(WE_OFF.dpiStages + 4);
   assert.throws(() => wePatchActiveDpi(profile, 800, 0), /checksum is invalid/);
+});
+
+test("WE mice expose battery, DPI, polling, and lift-off distance", () => {
+  assert.deepEqual(weExposedFeatures(), ["battery", "dpi", "polling-rate", "lift-off-distance"]);
 });

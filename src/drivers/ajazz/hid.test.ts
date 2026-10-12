@@ -183,7 +183,13 @@ describe("ajazz codec", () => {
     assert.equal(ajazzBindingLabel({ type: 16, code1: 3, code2: 4, code3: 0 }), null);
     assert.deepEqual(ajazzFindButtonAction("Mute"), { type: 48, code1: 226, code2: 0, code3: 0 });
     assert.equal(ajazzFindButtonAction("Nope"), null);
-    assert.ok(AJAZZ_BUTTON_ACTIONS.length > 40);
+    // Letters/digits map to their HID usage so a button can send "W" etc.
+    assert.deepEqual(ajazzFindButtonAction("W"), { type: 16, code1: 0, code2: 26, code3: 0 });
+    assert.deepEqual(ajazzFindButtonAction("A"), { type: 16, code1: 0, code2: 4, code3: 0 });
+    assert.deepEqual(ajazzFindButtonAction("0"), { type: 16, code1: 0, code2: 39, code3: 0 });
+    assert.ok(AJAZZ_BUTTON_ACTIONS.length > 100);
+    // Labels must stay unique or the remap UI would pick the wrong binding.
+    assert.equal(new Set(AJAZZ_BUTTON_ACTIONS.map((a) => a.label)).size, AJAZZ_BUTTON_ACTIONS.length);
     assert.deepEqual([...AJAZZ_BUTTON_NAMES], ["Left", "Right", "Middle", "Backward", "Forward", "DPI"]);
   });
 });
@@ -397,6 +403,16 @@ describe("AjazzHidClient", () => {
     assert.deepEqual([...keyBlock.slice(24, 32)], [33, 56, 1, 0, 33, 56, 255, 0]);
     const status = await client.readStatus();
     assert.equal(status.buttonMappings?.["Forward"], "Mute");
+  });
+
+  it("remaps a side button to a keyboard key like W", async () => {
+    const { client, keyBlock } = fakeMouse();
+    await client.setButtonMapping("Forward", "W");
+    const wire = new Uint8Array(63);
+    wire[0] = 0x08;
+    wire.set(keyBlock.slice(0, 24), 7);
+    assert.deepEqual(ajazzDecodeKeys(wire)![4], { type: 16, code1: 0, code2: 26, code3: 0 });
+    assert.equal((await client.readStatus()).buttonMappings?.["Forward"], "W");
   });
 
   it("refuses unknown buttons, locked Left and unknown actions", async () => {
